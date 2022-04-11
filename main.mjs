@@ -1,4 +1,4 @@
-import { createConstructionSite, getObjectsByPrototype, findClosestByPath } from '/game/utils';
+import { createConstructionSite, getObjectsByPrototype, findClosestByPath, findInRange } from '/game/utils';
 import { Creep, ConstructionSite, Source, StructureContainer, StructureSpawn, StructureTower } from '/game/prototypes';
 import { ATTACK, CARRY, HEAL, MOVE, WORK, ERR_NOT_IN_RANGE, ERR_INVALID_TARGET, RESOURCE_ENERGY } from '/game/constants';
 import { } from '/arena';
@@ -9,7 +9,8 @@ let aKnights = [];
 let aHealers = [];
 
 export function loop() {
-    const myCreeps = getObjectsByPrototype(Creep).filter(creep => creep.my);
+    const creeps = getObjectsByPrototype(Creep);
+    const myCreeps = creeps.filter(creep => creep.my);
     const mySpawn = getObjectsByPrototype(StructureSpawn).find(struct => struct.my);
     const constructionSites = getObjectsByPrototype(ConstructionSite).filter(struct => struct.my);
     const containers = getObjectsByPrototype(StructureContainer);
@@ -21,9 +22,11 @@ export function loop() {
         if (containers.length == 0) {
             // lookup source
             const source = findClosestByPath(mySpawn, sources);
+            // todo loop to see if building is possible
             createConstructionSite({x: source.x-1, y: source.y}, StructureContainer);
         }
         else if (towers.length == 0){
+            // todo loop to see if building is possible
             createConstructionSite({x: mySpawn.x-1, y: mySpawn.y}, StructureTower);
         }
     }
@@ -40,7 +43,7 @@ export function loop() {
     }
     else if (aMiners.length < 1) {
         if(mySpawn.store[RESOURCE_ENERGY] >= 250) {
-            const creep = mySpawn.spawnCreep([WORK, WORK, MOVE]).object;
+            const creep = mySpawn.spawnCreep([WORK, CARRY, MOVE]).object;
             if (creep) {
                 creep.role = "miner";
                 aMiners.push(creep);
@@ -60,8 +63,8 @@ export function loop() {
         if(mySpawn.store[RESOURCE_ENERGY] >= 210) {
             const creep = mySpawn.spawnCreep([HEAL, MOVE, MOVE]).object;
             if (creep) {
-                creep.role = "knight";
-                aMiners.push(creep);
+                creep.role = "healer";
+                aHealers.push(creep);
             }
         }
     }
@@ -97,10 +100,42 @@ export function loop() {
             }
         }
         else if (myCreep.role == "miner") {
+            // find source and container
+            if (containers.length > 0) {
+                const containersInRange = findInRange(myCreep, containers, 3);
 
+                if (containersInRange.length == 0) {
+                    myCreep.moveTo(containers[0]);
+                }
+                else { // in range
+                    const source = findClosestByPath(myCreep, sources);
+                    const container = containersInRange[0];
+                    myCreep.harvest(source);
+
+                    if (myCreep.transfer(container, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                        myCreep.moveTo(container);
+                    }
+                }
+            }
         }
         else if (myCreep.role == "knight") {
+            // look for enemies
+            const enemyCreep = creeps.find(creep => !creep.my);
+            
+            if(myCreep.attack(enemyCreep) == ERR_NOT_IN_RANGE) {
+                myCreep.moveTo(enemyCreep);
+            }
+        }
+        else if (myCreep.role == "healer") {
+            // look for own creeps to heal
+            const myDamagedCreeps = myCreeps.filter(i => i.my && i.hits < i.hitsMax);
 
+            if(myDamagedCreeps.length > 0) {
+                const damagedCreep = myDamagedCreeps[0];
+                if(myCreep.rangedHeal(damagedCreep) == ERR_NOT_IN_RANGE) {
+                    myCreep.moveTo(damagedCreep);
+                }
+            }
         }
     });
 }
